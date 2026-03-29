@@ -92,8 +92,6 @@ class LubimyCzytacProvider {
         return typeValueB - typeValueA;
       }).slice(0, 20);
 
-      // Return lightweight snippets here. Backbone will decide which items to fetch full
-      // metadata for and call getFullMetadata() only for candidates.
       const result = { matches: allMatches };
       this.cache.set(cacheKey, result);
       return result;
@@ -145,16 +143,12 @@ class LubimyCzytacProvider {
               $('.book-cover source').attr('srcset') ||
               $('.book-cover img').attr('src') ||
               $('meta[property="og:image"]').attr('content') || '';
-      // Robust publisher extraction: the page may show publisher in different places
+
       let publisher = '';
       try {
-        // 1) standard dt/dd label
         publisher = $('dt').filter((i, el) => $(el).text().toLowerCase().includes('wydawnictwo')).next('dd').find('a').text().trim() || '';
-        // 2) inline span blocks used on some pages
         if (!publisher) publisher = $('span.book__txt').filter((i, el) => $(el).text().toLowerCase().includes('wydawnictwo')).find('a').text().trim() || '';
-        // 3) direct anchor links to wydawnictwo pages
         if (!publisher) publisher = $('a[href*="/wydawnictwo/"]').first().text().trim() || '';
-        // 4) generic 'Wydawnictwo:' text followed by an <a> anywhere nearby
         if (!publisher) {
           const lbl = $('*:contains("Wydawnictwo")').filter((i, el) => $(el).text().toLowerCase().includes('wydawnictwo')).first();
           if (lbl && lbl.length) {
@@ -169,6 +163,7 @@ class LubimyCzytacProvider {
       } catch (e) {
         publisher = '';
       }
+
       const languages = $('dt:contains("Język:")').next('dd').text().trim().split(', ') || [];
       const description = $('.collapse-content').html() || $('meta[property="og:description"]').attr('content') || '';
       const seriesElement = $('span.d-none.d-sm-block.mt-1:contains("Cykl:")').find('a').text().trim();
@@ -188,12 +183,12 @@ class LubimyCzytacProvider {
       }
 
       const translator = this.extractTranslator($);
-      // Try to extract narrator/lector info (Polish pages use 'Czyta' or similar)
+
+      // Próba wyciągnięcia narratora z dt/dd
       let narrator = '';
       try {
         narrator = $('dt:contains("Czyta")').next('dd').text().trim() || '';
         if (!narrator) {
-          // look for product-detail-item label patterns
           const narrDiv = $('.product-detail-item').filter(function() {
             const lbl = $(this).find('.label').text().trim();
             return /Czyta|Czytają|Czytał|Czytała/i.test(lbl);
@@ -225,7 +220,7 @@ class LubimyCzytacProvider {
         },
       };
 
-      // Try to extract additional metadata from JSON-LD scripts when some fields are missing
+      // Uzupełnij brakujące pola z JSON-LD
       try {
         const scripts = $('script[type="application/ld+json"]');
         for (let i = 0; i < scripts.length; i++) {
@@ -247,9 +242,16 @@ class LubimyCzytacProvider {
                   else if (node.publisher.name) fullMetadata.publisher = node.publisher.name;
                 }
               }
+              // Narrator z JSON-LD (readBy)
+              if (!fullMetadata.narrator && node.readBy) {
+                if (typeof node.readBy === 'string') fullMetadata.narrator = node.readBy;
+                else if (node.readBy.name) fullMetadata.narrator = node.readBy.name;
+                else if (Array.isArray(node.readBy) && node.readBy.length) {
+                  fullMetadata.narrator = node.readBy.map(r => r.name || r).filter(Boolean).join(', ');
+                }
+              }
             }
           } catch (err) {
-            // ignore JSON parse errors
             continue;
           }
         }
@@ -289,19 +291,15 @@ class LubimyCzytacProvider {
         try {
           const data = JSON.parse(txt);
           if (data && (data.numberOfPages || data.numberOfPages === 0)) return data.numberOfPages;
-          // some pages have nested objects
           if (data && data['@graph']) {
             for (const node of data['@graph']) {
               if (node.numberOfPages) return node.numberOfPages;
             }
           }
         } catch (err) {
-          // ignore parse error for this script and continue
           continue;
         }
       }
-
-      // fallback: try to extract via regex from the page body
       const bodyText = $.root().text();
       const match = bodyText.match(/(\d{1,4})\s+stron/i);
       if (match) return parseInt(match[1], 10);
@@ -337,11 +335,9 @@ class LubimyCzytacProvider {
       if (pages) {
         enrichedDescription += `\n\nKsiążka ma ${pages} stron.`;
       }
-
       if (publishedDate) {
         enrichedDescription += `\n\nData pierwszego wydania: ${publishedDate.toLocaleDateString()}`;
       }
-
       if (translator) {
         enrichedDescription += `\n\nTłumacz: ${translator}`;
       }
@@ -366,5 +362,4 @@ class LubimyCzytacProvider {
 }
 
 module.exports = LubimyCzytacProvider;
-// supported languages for admin UI (ISO codes)
 module.exports.supportedLanguages = ['pl'];
