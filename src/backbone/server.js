@@ -1,13 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 
-// Simple backbone that loads provider modules by relative path and proxies /search
-// Expected usage: set PROVIDERS env var as a comma-separated list of provider folder paths,
-// e.g. PROVIDERS="./audioteka,./lubimyczytac"
-
 const path = require('path');
 
-// Load config and create providers from config
 const configLoader = require('../lib/config');
 let config = {};
 try {
@@ -56,7 +51,6 @@ app.get('/search', async (req, res) => {
 
   const tasks = providers.map(async (p) => {
     try {
-      // Pass provider configured language (if available) so providers like Storytel can use it
       const providerLang = (config.providers && config.providers[p.name] && config.providers[p.name].language) || undefined;
       const results = await p.instance.searchBooks(q, author, providerLang);
       return { provider: p.name, matches: results.matches || [] };
@@ -66,7 +60,7 @@ app.get('/search', async (req, res) => {
   });
 
   const all = await Promise.all(tasks);
-  // Flatten matches and tag with provider
+
   const combined = all.reduce((acc, cur) => {
     if (cur.matches) {
       const providerCfg = (config.providers && config.providers[cur.provider]) || {};
@@ -82,7 +76,6 @@ app.get('/search', async (req, res) => {
     if (Array.isArray(m.authors)) {
       m.authors = m.authors.map(a => (typeof a === 'string' ? a.trim() : (a ? String(a).trim() : ''))).filter(Boolean);
     } else if (m.author && typeof m.author === 'string') {
-      // split common separators
       m.authors = m.author.split(/\s*(?:,|;| and )\s*/).map(s => s.trim()).filter(Boolean);
     } else {
       m.authors = [];
@@ -98,13 +91,9 @@ app.get('/search', async (req, res) => {
     console.log('[search] provider snippets:', JSON.stringify(providerSnippetCounts));
   } catch (e) { /* ignore logging errors */ }
 
-  // Compute unified similarity for each match across all providers.
-  // Strategy: compare match.title to query (case-insensitive) for titleSimilarity.
-  // If author provided, compute best author similarity across match.authors and combine: 0.6*title + 0.4*author.
-  // Otherwise use titleSimilarity only. On tie, prefer audiobooks over books.
   const cleanedQuery = q.trim().toLowerCase();
   const cleanedAuthor = author ? author.trim().toLowerCase() : '';
-  const titleWeight = (config.global && typeof config.global.titleWeight === 'number') ? (config.global.titleWeight / 100) : 0.6; // fraction
+  const titleWeight = (config.global && typeof config.global.titleWeight === 'number') ? (config.global.titleWeight / 100) : 0.6;
   const authorWeight = 1 - titleWeight;
 
   const scored = combined.map(m => {
@@ -131,19 +120,14 @@ app.get('/search', async (req, res) => {
     return true;
   });
 
-  // At this point 'filtered' contains scored items we may want to show.
-  // Apply similarity threshold: only fetch full metadata for matches >= threshold and show those.
   const thresholdPct = (config.global && typeof config.global.similarityThreshold === 'number') ? config.global.similarityThreshold : 0;
   const threshold = Math.max(0, Math.min(100, thresholdPct)) / 100;
 
-  // Apply per-provider maxResults cap BEFORE thresholding to limit noisy providers
-  // Group filtered items by provider
   const byProviderAll = filtered.reduce((acc, m) => {
     (acc[m._provider] = acc[m._provider] || []).push(m);
     return acc;
   }, {});
 
-  // For each provider, sort by similarity and apply maxResults if configured (>0)
   const cappedByProvider = {};
   for (const [providerName, matches] of Object.entries(byProviderAll)) {
     const providerCfg = (config.providers && config.providers[providerName]) || {};
@@ -155,10 +139,8 @@ app.get('/search', async (req, res) => {
 
   const capped = Object.values(cappedByProvider).flat();
 
-  // Candidates above threshold (after per-provider capping)
   const candidates = capped.filter(m => (typeof m.similarity === 'number') ? (m.similarity >= threshold) : false);
 
-  // Group by provider name for metadata fetching
   const byProvider = candidates.reduce((acc, m) => {
     (acc[m._provider] = acc[m._provider] || []).push(m);
     return acc;
@@ -170,22 +152,18 @@ app.get('/search', async (req, res) => {
     let plannedFetches = 0;
     for (const [prov, arr] of Object.entries(byProvider)) {
       candidateCounts[prov] = arr.length;
-      // we'll fetch only those without _fullFetched
       plannedFetches += arr.filter(i => !i._fullFetched).length;
     }
     console.log('[search] candidates:', JSON.stringify(candidateCounts), 'plannedFullFetches=', plannedFetches);
   } catch (e) { /* ignore logging errors */ }
 
-  // For each provider, fetch full metadata for its candidates
   const fullFetchPromises = Object.entries(byProvider).map(async ([providerName, matches]) => {
     const providerObj = providers.find(p => p.name === providerName);
     if (!providerObj) return [];
     const inst = providerObj.instance;
-    // If provider exposes mapWithConcurrency, use it for parallel metadata fetches
     const limit = (config.providers && config.providers[providerName] && config.providers[providerName].concurrency) || 5;
     const toFetch = matches.filter(m => !m._fullFetched);
 
-    // If provider exposes mapWithConcurrency, use it for parallel metadata fetches
     if (typeof inst.mapWithConcurrency === 'function') {
       try {
         const results = await inst.mapWithConcurrency(toFetch, async (match) => {
@@ -199,7 +177,6 @@ app.get('/search', async (req, res) => {
             return null;
           }
         }, limit);
-        // Merge fetched results back with matches that were already full
         const fetched = results.filter(Boolean);
         const alreadyFull = matches.filter(m => m._fullFetched);
         return [...alreadyFull, ...fetched];
@@ -209,9 +186,8 @@ app.get('/search', async (req, res) => {
       }
     }
 
-    // Fallback: sequential fetches for the ones that need fetching
+    // Fallback: sequential fetches
     const out = [];
-    // include already-full items first
     for (const m of matches.filter(m => m._fullFetched)) out.push(m);
     for (const match of toFetch) {
       try {
@@ -231,7 +207,7 @@ app.get('/search', async (req, res) => {
   const nested = await Promise.all(fullFetchPromises);
   const fullResults = nested.flat();
 
-  // Sort final results same as before (similarity desc, audiobook preference, provider priority)
+  // Sort final results
   fullResults.sort((a, b) => {
     if (b.similarity !== a.similarity) return b.similarity - a.similarity;
     const aIsAudio = (a.type === 'audiobook' || (a.format && a.format === 'audiobook')) ? 1 : 0;
@@ -242,17 +218,14 @@ app.get('/search', async (req, res) => {
     return bPriority - aPriority;
   });
 
-  // Optionally create a merged "best result" at the top that combines fields from top-equal items
+  // Optionally create a merged "best result" at the top
   try {
     const mergeEnabled = config.global && !!config.global.mergeBestResults;
     if (mergeEnabled && fullResults && fullResults.length) {
-      // find top similarity value
       const topSim = fullResults[0].similarity || 0;
-      // allow tiny epsilon
       const EPS = 1e-6;
       const topGroup = fullResults.filter(fr => Math.abs((fr.similarity || 0) - topSim) <= EPS);
       if (topGroup.length > 1) {
-        // Prefer items with higher provider priority and more metadata when selecting fields
         const countNonEmpty = (item) => {
           const fields = ['title','authors','narrator','description','cover','type','url','id','languages','publisher','publishedDate','series','genres','tags','identifiers'];
           let c = 0;
@@ -307,21 +280,6 @@ app.get('/search', async (req, res) => {
           return { value: undefined, source: null };
         };
 
-        const pickPublishedYearAndSource = () => {
-          const preferred = prefs && prefs['publishedYear'];
-          if (preferred) {
-            const p = sortedGroup.find(i => i._provider === preferred && i.publishedDate);
-            if (p) return { value: (new Date(p.publishedDate).getFullYear() || '').toString(), source: preferred };
-          }
-          for (const it of sortedGroup) {
-            if (it.publishedDate) {
-              const y = new Date(it.publishedDate).getFullYear();
-              if (y) return { value: y.toString(), source: it._provider };
-            }
-          }
-          return { value: undefined, source: null };
-        };
-
         const pickLanguageAndSource = () => {
           const preferred = prefs && prefs['language'];
           if (preferred) {
@@ -334,11 +292,9 @@ app.get('/search', async (req, res) => {
           return { value: undefined, source: null };
         };
 
-        // pick cover using preference and record source
         const coverPick = pickFieldAndSource('cover');
         let coverValue = coverPick.value;
         let coverSource = coverPick.source;
-        // prefer audiobook cover if preferred didn't yield
         if (!coverValue) {
           const audioCandidate = sortedGroup.find(i => (i.type === 'audiobook' || (i.format && i.format === 'audiobook')) && i.cover);
           if (audioCandidate) {
@@ -347,7 +303,6 @@ app.get('/search', async (req, res) => {
           }
         }
 
-        // merged object: copy many common fields, merging arrays/identifiers
         const merged = {};
         const titlePick = pickFieldAndSource('title'); merged.title = titlePick.value || '';
         const subtitlePick = pickFieldAndSource('subtitle'); merged.subtitle = subtitlePick.value || '';
@@ -358,69 +313,61 @@ app.get('/search', async (req, res) => {
         merged.type = (pickFieldAndSource('type').value) || (topGroup.some(i => i.type === 'audiobook') ? 'audiobook' : 'book');
         merged.similarity = topSim;
 
-        // URL/id/source
-  merged.id = (pickFieldAndSource('id').value) || pickIdentifierAndSource('lubimyczytac').value || pickIdentifierAndSource('audioteka').value || '';
-  merged.url = (pickFieldAndSource('url').value) || '';
-  merged.source = pickFieldAndSource('source').value || null;
+        merged.id = (pickFieldAndSource('id').value) || pickIdentifierAndSource('lubimyczytac').value || pickIdentifierAndSource('audioteka').value || '';
+        merged.url = (pickFieldAndSource('url').value) || '';
+        merged.source = pickFieldAndSource('source').value || null;
 
-        // languages: union
         const langs = new Set();
         for (const it of sortedGroup) {
           if (Array.isArray(it.languages)) for (const L of it.languages) langs.add(L);
         }
         merged.languages = Array.from(langs);
 
-  // publishedDate: prefer any provider that supplies a full ISO-like publishedDate
-  const pickPublishedDate = () => {
-    const preferred = prefs && prefs['publishedDate'];
-    if (preferred) {
-      const p = sortedGroup.find(i => i._provider === preferred && i.publishedDate);
-      if (p) return { value: p.publishedDate, source: preferred };
-    }
-    for (const it of sortedGroup) {
-      if (it.publishedDate) return { value: it.publishedDate, source: it._provider };
-    }
-    // no publishedDate found
-    return { value: undefined, source: null };
-  };
+        const pickPublishedDate = () => {
+          const preferred = prefs && prefs['publishedDate'];
+          if (preferred) {
+            const p = sortedGroup.find(i => i._provider === preferred && i.publishedDate);
+            if (p) return { value: p.publishedDate, source: preferred };
+          }
+          for (const it of sortedGroup) {
+            if (it.publishedDate) return { value: it.publishedDate, source: it._provider };
+          }
+          return { value: undefined, source: null };
+        };
 
-  const pubDatePick = pickPublishedDate();
-  merged.publishedDate = pubDatePick.value || undefined;
+        const pubDatePick = pickPublishedDate();
+        merged.publishedDate = pubDatePick.value || undefined;
 
-  // publishedYear: derive from publishedDate if present, otherwise fall back to any publishedYear field
-  const pickPublishedYear = () => {
-    // prefer explicit preference
-    const preferred = prefs && prefs['publishedYear'];
-    if (preferred) {
-      const p = sortedGroup.find(i => i._provider === preferred && (i.publishedDate || i.publishedYear));
-      if (p) {
-        if (p.publishedDate) return { value: (new Date(p.publishedDate).getFullYear() || '').toString(), source: preferred };
-        if (p.publishedYear) return { value: (p.publishedYear || '').toString(), source: preferred };
-      }
-    }
-    // derive from any publishedDate first
-    for (const it of sortedGroup) {
-      if (it.publishedDate) {
-        const y = new Date(it.publishedDate).getFullYear();
-        if (y) return { value: y.toString(), source: it._provider };
-      }
-    }
-    // fallback: any explicit publishedYear field
-    for (const it of sortedGroup) {
-      if (it.publishedYear) return { value: (it.publishedYear || '').toString(), source: it._provider };
-    }
-    return { value: undefined, source: null };
-  };
+        const pickPublishedYear = () => {
+          const preferred = prefs && prefs['publishedYear'];
+          if (preferred) {
+            const p = sortedGroup.find(i => i._provider === preferred && (i.publishedDate || i.publishedYear));
+            if (p) {
+              if (p.publishedDate) return { value: (new Date(p.publishedDate).getFullYear() || '').toString(), source: preferred };
+              if (p.publishedYear) return { value: (p.publishedYear || '').toString(), source: preferred };
+            }
+          }
+          for (const it of sortedGroup) {
+            if (it.publishedDate) {
+              const y = new Date(it.publishedDate).getFullYear();
+              if (y) return { value: y.toString(), source: it._provider };
+            }
+          }
+          for (const it of sortedGroup) {
+            if (it.publishedYear) return { value: (it.publishedYear || '').toString(), source: it._provider };
+          }
+          return { value: undefined, source: null };
+        };
 
-  const pubYearPick = pickPublishedYear();
-  merged.publishedYear = pubYearPick.value || undefined;
-  // record provenance
-  merged._mergedFieldSources = merged._mergedFieldSources || {};
-  if (pubDatePick.source) merged._mergedFieldSources.publishedDate = pubDatePick.source;
-  if (pubYearPick.source) merged._mergedFieldSources.publishedYear = pubYearPick.source;
-  merged.publisher = pickFieldAndSource('publisher').value || '';
-  merged.rating = pickFieldAndSource('rating').value || null;
-       // series: respect preference, else gather from any provider (string or array), prefer first non-empty
+        const pubYearPick = pickPublishedYear();
+        merged.publishedYear = pubYearPick.value || undefined;
+        merged._mergedFieldSources = merged._mergedFieldSources || {};
+        if (pubDatePick.source) merged._mergedFieldSources.publishedDate = pubDatePick.source;
+        if (pubYearPick.source) merged._mergedFieldSources.publishedYear = pubYearPick.source;
+        merged.publisher = pickFieldAndSource('publisher').value || '';
+        merged.rating = pickFieldAndSource('rating').value || null;
+
+        // series
         const seriesPref = prefs && prefs['series'];
         let chosenSeries = '';
         let seriesIndex = null;
@@ -454,23 +401,19 @@ app.get('/search', async (req, res) => {
           const seriesArr = Array.from(seriesSet);
           chosenSeries = seriesArr.length ? seriesArr[0] : '';
         }
-        // Provide series in the same shape provider wrappers use (array of { series, sequence })
-        // This is what Audiobookshelf expects when importing series information.
         if (chosenSeries) {
           merged.series = [{ series: chosenSeries, sequence: (seriesIndex !== null && typeof seriesIndex !== 'undefined') ? String(seriesIndex) : undefined }];
         } else {
           merged.series = undefined;
         }
-        // keep legacy seriesIndex field for compatibility
         merged.seriesIndex = (typeof seriesIndex !== 'undefined' && seriesIndex !== null) ? seriesIndex : null;
 
-  const isbnPick = pickIdentifierAndSource('isbn'); merged.isbn = isbnPick.value || undefined;
-  const asinPick = pickIdentifierAndSource('asin'); merged.asin = asinPick.value || undefined;
-  const durationPick = pickFieldAndSource('duration'); merged.duration = durationPick.value || undefined;
-  merged.url = merged.url || '';
-  const languagePick = pickLanguageAndSource(); merged.language = languagePick.value || undefined;
+        const isbnPick = pickIdentifierAndSource('isbn'); merged.isbn = isbnPick.value || undefined;
+        const asinPick = pickIdentifierAndSource('asin'); merged.asin = asinPick.value || undefined;
+        const durationPick = pickFieldAndSource('duration'); merged.duration = durationPick.value || undefined;
+        merged.url = merged.url || '';
+        const languagePick = pickLanguageAndSource(); merged.language = languagePick.value || undefined;
 
-        // genres/tags: respect preference, else union and normalize/dedupe
         const normalize = (s) => (s || '').toString().trim().toLowerCase();
         const pickListPrefOrUnion = (field) => {
           const preferredProvider = prefs && prefs[field];
@@ -488,16 +431,14 @@ app.get('/search', async (req, res) => {
           return Array.from(set);
         };
 
-  merged.genres = pickListPrefOrUnion('genres');
-  merged.tags = pickListPrefOrUnion('tags');
+        merged.genres = pickListPrefOrUnion('genres');
+        merged.tags = pickListPrefOrUnion('tags');
 
-        // record provenance for these merged lists
         merged._mergedFieldSources = merged._mergedFieldSources || {};
-  merged._mergedFieldSources.genres = (prefs && prefs['genres']) ? prefs['genres'] : Array.from(new Set(sortedGroup.filter(i=> (i.genres && i.genres.length) || (typeof i.genres === 'string' && i.genres)).map(i=>i._provider)));
-  merged._mergedFieldSources.tags = (prefs && prefs['tags']) ? prefs['tags'] : Array.from(new Set(sortedGroup.filter(i=> (i.tags && i.tags.length) || (typeof i.tags === 'string' && i.tags)).map(i=>i._provider)));
-  merged._mergedFieldSources.series = (prefs && prefs['series']) ? prefs['series'] : Array.from(new Set(sortedGroup.filter(i=> (i.series && (Array.isArray(i.series) ? i.series.length : !!i.series))).map(i=>i._provider)));
+        merged._mergedFieldSources.genres = (prefs && prefs['genres']) ? prefs['genres'] : Array.from(new Set(sortedGroup.filter(i => (i.genres && i.genres.length) || (typeof i.genres === 'string' && i.genres)).map(i => i._provider)));
+        merged._mergedFieldSources.tags = (prefs && prefs['tags']) ? prefs['tags'] : Array.from(new Set(sortedGroup.filter(i => (i.tags && i.tags.length) || (typeof i.tags === 'string' && i.tags)).map(i => i._provider)));
+        merged._mergedFieldSources.series = (prefs && prefs['series']) ? prefs['series'] : Array.from(new Set(sortedGroup.filter(i => (i.series && (Array.isArray(i.series) ? i.series.length : !!i.series))).map(i => i._provider)));
 
-        // identifiers: merge keys preferring earlier providers
         const identifiers = {};
         for (const it of sortedGroup) {
           if (it.identifiers && typeof it.identifiers === 'object') {
@@ -509,7 +450,6 @@ app.get('/search', async (req, res) => {
         merged.identifiers = identifiers;
 
         merged._mergedFrom = topGroup.map(i => ({ provider: i._provider, id: i.id || i._id || null }));
-        // provenance for specific single-valued fields
         merged._mergedFieldSources = merged._mergedFieldSources || {};
         const singleFields = ['narrator','publisher','language','subtitle','duration','url','source'];
         for (const f of singleFields) {
@@ -526,36 +466,33 @@ app.get('/search', async (req, res) => {
             if (contributor) merged._mergedFieldSources[f] = contributor._provider;
           }
         }
-        // optional debug logging
+
         if (config.global && config.global.mergeDebug) {
           try {
-            console.log('mergeBestResults topGroup providers:', topGroup.map(t => ({ provider: t._provider, priority: t._providerPriority, fields: Object.keys(t).filter(k=>!!t[k]) })));
+            console.log('mergeBestResults topGroup providers:', topGroup.map(t => ({ provider: t._provider, priority: t._providerPriority, fields: Object.keys(t).filter(k => !!t[k]) })));
             console.log('mergeBestResults merged:', merged);
-          } catch (e) { /* ignore logging errors */ }
+          } catch (e) { /* ignore */ }
         }
-        // concise provenance log for regular ops (always useful)
         try {
           if (merged && merged._mergedFieldSources) {
-            console.log('[merge] merged from providers:', Array.from(new Set(topGroup.map(i=>i._provider))).join(','), 'fieldSources=', JSON.stringify(merged._mergedFieldSources));
+            console.log('[merge] merged from providers:', Array.from(new Set(topGroup.map(i => i._provider))).join(','), 'fieldSources=', JSON.stringify(merged._mergedFieldSources));
           } else {
-            console.log('[merge] merged from providers:', Array.from(new Set(topGroup.map(i=>i._provider))).join(','));
+            console.log('[merge] merged from providers:', Array.from(new Set(topGroup.map(i => i._provider))).join(','));
           }
-        } catch (e) { /* ignore logging errors */ }
-  // mark this synthetic result so frontends can easily identify it
-  merged._provider = 'merged';
-  // give merged a priority slightly above the highest provider in the group
-  merged._providerPriority = (Math.max(...topGroup.map(i => (typeof i._providerPriority === 'number' ? i._providerPriority : 0))) || 0) + 1;
-  merged.source = merged.source || { id: 'merged', description: 'Merged result' };
+        } catch (e) { /* ignore */ }
 
-        // Insert merged at the top if it is not redundant with the existing top item.
+        merged._provider = 'merged';
+        merged._providerPriority = (Math.max(...topGroup.map(i => (typeof i._providerPriority === 'number' ? i._providerPriority : 0))) || 0) + 1;
+        merged.source = merged.source || { id: 'merged', description: 'Merged result' };
+
         const top = fullResults[0];
         const sameTitleAuthors = top.title === merged.title && top.authors && merged.authors && top.authors.join('|') === merged.authors.join('|');
         const mergedFields = ['narrator', 'description', 'cover', 'languages', 'identifiers', 'genres', 'tags'];
         const topHasAllMergedFields = mergedFields.every(f => {
-          if (!merged[f] || (Array.isArray(merged[f]) && merged[f].length === 0)) return true; // merged doesn't have it, ignore
+          if (!merged[f] || (Array.isArray(merged[f]) && merged[f].length === 0)) return true;
           if (Array.isArray(merged[f])) return Array.isArray(top[f]) && top[f].length > 0;
           if (f === 'identifiers') return top[f] && Object.keys(top[f]).length > 0;
-          return !!top[f]; // merged has it -> top must also have it
+          return !!top[f];
         });
         if (!(sameTitleAuthors && topHasAllMergedFields)) {
           fullResults.unshift(merged);
@@ -566,22 +503,17 @@ app.get('/search', async (req, res) => {
     console.error('Error during mergeBestResults:', err && err.message ? err.message : err);
   }
 
-  // Normalize author fields for all results so downstream consumers (like Audiobookshelf)
-  // reliably see both `authors` (array) and `author` (string).
+  // Normalize author fields
   const normalizeAuthors = (item) => {
     if (!item) return;
-    // Normalize authors -> array of trimmed names
     if (Array.isArray(item.authors)) {
       item.authors = item.authors.map(a => (a || '').toString().trim()).filter(Boolean);
     } else if (item.author && typeof item.author === 'string') {
-      // split common separators: comma, semicolon, ' and '
       const parts = item.author.split(/\s*(?:,|;| and )\s*/).map(s => s.trim()).filter(Boolean);
       item.authors = parts;
     } else {
       item.authors = item.authors || [];
     }
-
-    // Ensure singular author string exists (joined)
     if (!item.author || typeof item.author !== 'string' || !item.author.trim()) {
       item.author = item.authors && item.authors.length ? item.authors.join(', ') : undefined;
     } else {
@@ -590,49 +522,39 @@ app.get('/search', async (req, res) => {
   };
 
   for (const it of fullResults) normalizeAuthors(it);
-  // Ensure subtitle exists where possible by looking into identifiers
-  // NOTE: avoid using provider `source.description` as a fallback for `publisher` —
-  // that often contains the provider/site name (Lubimyczytac, Audioteka) rather
-  // than the actual publishing company. Providers should supply `publisher`.
+
   for (const it of fullResults) {
     if ((!it.subtitle || it.subtitle === '') && it.identifiers && it.identifiers.title) {
       it.subtitle = it.identifiers.title;
     }
-    // do not auto-fill `publisher` from provider site description
   }
 
-  // Compatibility: some downstream consumers (older Audiobookshelf importers / plugins)
-  // expect a flat `published` or `published_date` field. Keep them populated so imports
-  // don't silently drop the year/date when they only look for these names.
   for (const it of fullResults) {
-    // `published` - prefer explicit publishedYear (string), else derive from publishedDate
     if (!it.published) {
       if (it.publishedYear) it.published = it.publishedYear;
       else if (it.publishedDate) {
         try {
           const y = new Date(it.publishedDate).getFullYear();
           if (y && !Number.isNaN(y)) it.published = y.toString();
-        } catch (e) { /* ignore invalid dates */ }
+        } catch (e) { /* ignore */ }
       }
     }
-    // `published_date` - expose full ISO-like date if available
     if (!it.published_date && it.publishedDate) it.published_date = it.publishedDate;
   }
-// Normalize series field to ABS format: [{ series: string, sequence: string }]
-for (const it of fullResults) {
-  // skip merged results — they already build series in the correct shape
-  if (it._provider === 'merged') continue;
 
-  if (it.series && !Array.isArray(it.series)) {
-    // provider returned series as plain string + seriesIndex as number
-    it.series = [{
-      series: it.series,
-      sequence: (it.seriesIndex !== null && typeof it.seriesIndex !== 'undefined')
-        ? String(it.seriesIndex)
-        : undefined
-    }];
+  // Normalize series field to ABS format: [{ series: string, sequence: string }]
+  for (const it of fullResults) {
+    if (it._provider === 'merged') continue;
+    if (it.series && !Array.isArray(it.series)) {
+      it.series = [{
+        series: it.series,
+        sequence: (it.seriesIndex !== null && typeof it.seriesIndex !== 'undefined')
+          ? String(it.seriesIndex)
+          : undefined
+      }];
+    }
   }
-}
+
   // Uzupełnij brakującego narratora z innych providerów
   for (const it of fullResults) {
     if (it.narrator) continue;
@@ -644,16 +566,15 @@ for (const it of fullResults) {
       stringSimilarity.compareTwoStrings(
         (other.title || '').toLowerCase(),
         (it.title || '').toLowerCase()
-      ) >= 0.6
+      ) >= 0.7
     );
     if (donor) it.narrator = donor.narrator;
   }
+
   res.json({ providers: all, matches: fullResults });
 });
 
-// Admin endpoints for config — no authentication enforced (LAN use assumed).
 function checkAdmin(req, res, next) {
-  // deliberately allow all requests; remove ADMIN_TOKEN gating to simplify local use
   return next();
 }
 
@@ -661,10 +582,9 @@ app.get('/admin/config', checkAdmin, (req, res) => {
   res.json(config);
 });
 
-// Provide provider metadata (supported languages etc) to admin UI
 app.get('/admin/providers/meta', checkAdmin, (req, res) => {
   const meta = providers.map(p => {
-    const supported = (p.ProviderClass && p.ProviderClass.supportedLanguages) || (p.ProviderClass && p.ProviderClass.supportedLanguages) || [];
+    const supported = (p.ProviderClass && p.ProviderClass.supportedLanguages) || [];
     return { name: p.name, supportedLanguages: supported };
   });
   res.json(meta);
@@ -673,11 +593,8 @@ app.get('/admin/providers/meta', checkAdmin, (req, res) => {
 app.put('/admin/config', checkAdmin, express.json(), (req, res) => {
   try {
     const newCfg = req.body;
-    // validate and save
     configLoader.saveConfig(newCfg);
-    // reload in-memory
     config = configLoader.loadConfig();
-    // reload provider instances in background
     try {
       reloadProviders(config);
     } catch (err) {
@@ -690,14 +607,12 @@ app.put('/admin/config', checkAdmin, express.json(), (req, res) => {
   }
 });
 
-// Serve a tiny admin UI for editing the JSON config
 app.get('/admin', (req, res) => {
   res.sendFile(path.resolve(__dirname, 'admin.html'));
 });
 
-// Serve a small search UI that calls the /search API and renders results
 app.get('/search-ui', (req, res) => {
   res.sendFile(path.resolve(__dirname, 'search.html'));
 });
 
-app.listen(port, () => console.log(`Backbone listening on ${port}; providers: ${providers.map(p=>p.name).join(',')}`));
+app.listen(port, () => console.log(`Backbone listening on ${port}; providers: ${providers.map(p => p.name).join(',')}`));
