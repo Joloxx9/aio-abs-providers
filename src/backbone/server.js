@@ -571,7 +571,38 @@ app.get('/search', async (req, res) => {
     if (donor) it.narrator = donor.narrator;
   }
 
-  res.json({ providers: all, matches: fullResults });
+  // Przed res.json({ providers: all, matches: fullResults });
+
+const formattedMatches = fullResults.map(book => {
+  const year = book.publishedDate ? new Date(book.publishedDate).getFullYear() : null;
+  const publishedYear = year ? year.toString() : (book.publishedYear || undefined);
+
+  return {
+    title: book.title,
+    subtitle: book.subtitle || undefined,
+    author: Array.isArray(book.authors) ? book.authors.join(', ') : (book.author || undefined),
+    narrator: book.narrator || undefined,
+    publisher: book.publisher || undefined,
+    publishedYear: publishedYear,
+    description: book.description || undefined,
+    cover: book.cover || undefined,
+    isbn: book.identifiers?.isbn || (book.similarity >= 0.95 ? '0' : undefined),
+    asin: book.identifiers?.asin || undefined,
+    genres: book.genres || undefined,
+    tags: book.tags || undefined,
+    series: book.series ? (
+      Array.isArray(book.series)
+        ? book.series
+        : [{ series: book.series, sequence: book.seriesIndex ? book.seriesIndex.toString() : undefined }]
+    ) : undefined,
+    language: book.languages && book.languages.length > 0 ? book.languages[0] : undefined,
+    duration: book.duration || undefined,
+    type: book.type,
+    similarity: book.similarity,
+  };
+});
+
+res.json({ providers: all, matches: formattedMatches });
 });
 
 function checkAdmin(req, res, next) {
