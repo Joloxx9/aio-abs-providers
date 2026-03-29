@@ -420,23 +420,35 @@ app.get('/search', async (req, res) => {
   if (pubYearPick.source) merged._mergedFieldSources.publishedYear = pubYearPick.source;
   merged.publisher = pickFieldAndSource('publisher').value || '';
   merged.rating = pickFieldAndSource('rating').value || null;
-        // series: respect preference, else gather from any provider (string or array), prefer first non-empty
+       // series: respect preference, else gather from any provider (string or array), prefer first non-empty
         const seriesPref = prefs && prefs['series'];
         let chosenSeries = '';
         let seriesIndex = null;
         if (seriesPref) {
           const p = sortedGroup.find(i => i._provider === seriesPref && (i.series || (Array.isArray(i.series) && i.series.length)));
           if (p) {
-            if (Array.isArray(p.series)) chosenSeries = p.series[0];
-            else chosenSeries = p.series || '';
-            seriesIndex = typeof p.seriesIndex !== 'undefined' ? p.seriesIndex : null;
+            if (Array.isArray(p.series)) {
+              const first = p.series[0];
+              chosenSeries = (first && typeof first === 'object') ? (first.series || '') : (first || '');
+              if (!seriesIndex && first && typeof first === 'object' && first.sequence) seriesIndex = first.sequence;
+            } else {
+              chosenSeries = p.series || '';
+            }
+            if (seriesIndex === null && typeof p.seriesIndex !== 'undefined') seriesIndex = p.seriesIndex;
           }
         }
         if (!chosenSeries) {
           const seriesSet = new Set();
           for (const it of sortedGroup) {
-            if (Array.isArray(it.series)) for (const s of it.series) if (s) seriesSet.add(s);
-            else if (it.series) seriesSet.add(it.series);
+            if (Array.isArray(it.series)) {
+              for (const s of it.series) {
+                if (!s) continue;
+                if (typeof s === 'object') { if (s.series) seriesSet.add(s.series); }
+                else seriesSet.add(s);
+              }
+            } else if (it.series) {
+              seriesSet.add(it.series);
+            }
             if (!seriesIndex && (typeof it.seriesIndex !== 'undefined' && it.seriesIndex !== null)) seriesIndex = it.seriesIndex;
           }
           const seriesArr = Array.from(seriesSet);
@@ -606,7 +618,21 @@ app.get('/search', async (req, res) => {
     // `published_date` - expose full ISO-like date if available
     if (!it.published_date && it.publishedDate) it.published_date = it.publishedDate;
   }
+// Normalize series field to ABS format: [{ series: string, sequence: string }]
+for (const it of fullResults) {
+  // skip merged results — they already build series in the correct shape
+  if (it._provider === 'merged') continue;
 
+  if (it.series && !Array.isArray(it.series)) {
+    // provider returned series as plain string + seriesIndex as number
+    it.series = [{
+      series: it.series,
+      sequence: (it.seriesIndex !== null && typeof it.seriesIndex !== 'undefined')
+        ? String(it.seriesIndex)
+        : undefined
+    }];
+  }
+}
   res.json({ providers: all, matches: fullResults });
 });
 
