@@ -10,7 +10,7 @@ Searches multiple providers (lubimyczytac, audioteka, storytel, ...) and returns
 
 ---
 
-## Quick overview
+## Quick overview 
 
 > You can search besides abs on `http://<host>:4000/search-ui`
 
