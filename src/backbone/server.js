@@ -633,6 +633,21 @@ for (const it of fullResults) {
     }];
   }
 }
+  // Uzupełnij brakującego narratora z innych providerów
+  for (const it of fullResults) {
+    if (it.narrator) continue;
+    const donor = fullResults.find(other =>
+      other !== it &&
+      other.narrator &&
+      other.authors && it.authors &&
+      other.authors[0] === it.authors[0] &&
+      stringSimilarity.compareTwoStrings(
+        (other.title || '').toLowerCase(),
+        (it.title || '').toLowerCase()
+      ) >= 0.6
+    );
+    if (donor) it.narrator = donor.narrator;
+  }
   res.json({ providers: all, matches: fullResults });
 });
 
