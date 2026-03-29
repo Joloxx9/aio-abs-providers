@@ -7,7 +7,7 @@ on:
     branches: [ 'main' ]
 
 env:
-  IMAGE_NAME: lakafior/aio-abs-providers
+  IMAGE_NAME: Joloxx9/aio-abs-providers
 
 jobs:
   build-and-push:
