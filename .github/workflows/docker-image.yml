@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [ 'main', 'dev' ]
 env:
-  IMAGE_NAME: TWÓJ_LOGIN/aio-abs-providers
+  IMAGE_NAME: joloxx9/aio-abs-providers
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
