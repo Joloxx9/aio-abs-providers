@@ -11,7 +11,12 @@ RUN groupadd -r app && useradd -r -g app app || true
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN chown -R app:app /app
-USER app
+# Install gosu for proper privilege dropping in the entrypoint (correct signal forwarding).
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
+# The entrypoint runs as root, fixes mounted volume permissions, then drops to the app user.
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 ENV NODE_ENV=production
 EXPOSE 4000
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["npm", "run", "start:backbone"]
