@@ -8,6 +8,6 @@ services:
     environment:
       - NODE_ENV=production
     volumes:
-      - ./src/config:/app/src/config
+      - ./src/config/config.json:/app/src/config/config.json
       - ./logs:/logs
     restart: unless-stopped
