@@ -91,6 +91,10 @@
     function makeLanguageSelect(selected, supportedList) {
       const sel = document.createElement('select');
       sel.dataset.key = 'language';
+      const optNone = document.createElement('option');
+      optNone.value = '';
+      optNone.textContent = '(none)';
+      sel.appendChild(optNone);
       const options = (supportedList && supportedList.length) ? supportedList.map(code => ({ code, label: code })) : LANGS;
       for (const opt of options) {
         const o = document.createElement('option');

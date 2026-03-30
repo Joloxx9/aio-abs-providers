@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const Ajv = require('ajv');
 
-const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'config.json');
-const SCHEMA_PATH = path.resolve(__dirname, '..', 'config', 'schema.json');
+const CONFIG_DIR = process.env.CONFIG_DIR || path.resolve(__dirname, '..', 'config');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+const SCHEMA_PATH = path.join(CONFIG_DIR, 'schema.json');
 
 const ajv = new Ajv({ allErrors: true, useDefaults: true });
 const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
