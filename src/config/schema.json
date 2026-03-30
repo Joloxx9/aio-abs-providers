@@ -31,6 +31,7 @@
         ,"titleWeight": { "type": "integer", "minimum": 0, "maximum": 100, "default": 60 }
         ,"similarityThreshold": { "type": "integer", "minimum": 0, "maximum": 100, "default": 30 }
         ,"mergeBestResults": { "type": "boolean", "default": false }
+        ,"mergeDebug": { "type": "boolean", "default": false }
         ,"mergePreferences": {
           "type": "object",
           "properties": {
@@ -55,7 +56,7 @@
             "genres": { "type": ["string", "null"] },
             "tags": { "type": ["string", "null"] }
           },
-          "additionalProperties": true
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

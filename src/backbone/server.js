@@ -225,7 +225,7 @@ app.get('/search', async (req, res) => {
       const topSim = fullResults[0].similarity || 0;
       const EPS = 1e-6;
       const topGroup = fullResults.filter(fr => Math.abs((fr.similarity || 0) - topSim) <= EPS);
-      if (topGroup.length > 1) {
+      if (topGroup.length > 1 && new Set(topGroup.map(i => i._provider)).size > 1) {
         const countNonEmpty = (item) => {
           const fields = ['title','authors','narrator','description','cover','type','url','id','languages','publisher','publishedDate','series','genres','tags','identifiers'];
           let c = 0;
@@ -312,6 +312,13 @@ app.get('/search', async (req, res) => {
         merged.cover = coverValue || null;
         merged.type = (pickFieldAndSource('type').value) || (topGroup.some(i => i.type === 'audiobook') ? 'audiobook' : 'book');
         merged.similarity = topSim;
+
+        merged._mergedFieldSources = {};
+        if (titlePick.source) merged._mergedFieldSources.title = titlePick.source;
+        if (authorsPick.source) merged._mergedFieldSources.authors = authorsPick.source;
+        if (narratorPick.source) merged._mergedFieldSources.narrator = narratorPick.source;
+        if (descriptionPick.source) merged._mergedFieldSources.description = descriptionPick.source;
+        if (coverSource) merged._mergedFieldSources.cover = coverSource;
 
         merged.id = (pickFieldAndSource('id').value) || pickIdentifierAndSource('lubimyczytac').value || pickIdentifierAndSource('audioteka').value || '';
         merged.url = (pickFieldAndSource('url').value) || '';

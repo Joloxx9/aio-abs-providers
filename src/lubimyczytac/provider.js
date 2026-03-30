@@ -16,8 +16,9 @@ class LubimyCzytacProvider {
     this.cache = new NodeCache({ stdTTL: 600 });
   }
 
-  decodeText(text) {
-    return this.textDecoder.decode(new TextEncoder().encode(text));
+  decodeText(data) {
+    if (typeof data === 'string') return data;
+    return this.textDecoder.decode(data);
   }
 
   async searchBooks(query, author = '') {
@@ -63,8 +64,8 @@ class LubimyCzytacProvider {
         audiobooksSearchUrl += `&author=${encodeURIComponent(author)}`;
       }
 
-      const booksResponse = await axios.get(booksSearchUrl, { responseType: 'arraybuffer' });
-      const audiobooksResponse = await axios.get(audiobooksSearchUrl, { responseType: 'arraybuffer' });
+      const booksResponse = await axios.get(booksSearchUrl, { responseType: 'arraybuffer', timeout: this.timeoutMs });
+      const audiobooksResponse = await axios.get(audiobooksSearchUrl, { responseType: 'arraybuffer', timeout: this.timeoutMs });
 
       const booksMatches = this.parseSearchResults(booksResponse.data, 'book');
       const audiobooksMatches = this.parseSearchResults(audiobooksResponse.data, 'audiobook');
@@ -135,7 +136,7 @@ class LubimyCzytacProvider {
 
   async getFullMetadata(match) {
     try {
-      const response = await axios.get(match.url, { responseType: 'arraybuffer' });
+      const response = await axios.get(match.url, { responseType: 'arraybuffer', timeout: this.timeoutMs });
       const decodedData = this.decodeText(response.data);
       const $ = cheerio.load(decodedData);
 
