@@ -77,7 +77,7 @@ services:
     environment:
       - NODE_ENV=production
     volumes:
-      - ./src/config:/src/config
+      - ./src/config:/app/src/config
       - ./logs:/logs
     restart: unless-stopped
 ```
