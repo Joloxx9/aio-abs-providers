@@ -70,15 +70,15 @@ Project includes `docker-compose.yml`:
 version: '3.8'
 services:
   aioabs-backbone:
-    image: lakafior/aio-abs-providers:latest
+    image: joloxx9/aio-abs-providers:latest
     container_name: aio-backbone
     ports:
       - "4000:4000"
     environment:
       - NODE_ENV=production
     volumes:
-      - ./src/config:/src/config
-      - ./logs:/logs
+      - ./src/config:/app/src/config
+      - ./logs:/app/logs
     restart: unless-stopped
 ```
 
