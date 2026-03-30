@@ -269,6 +269,7 @@ class StorytelProvider {
 
         try {
             const searchResponse = await axios.get(this.baseSearchUrl, {
+                timeout: this.timeoutMs,
                 params: {
                     request_locale: usedLocale,
                     q: formattedQuery
@@ -347,6 +348,7 @@ class StorytelProvider {
     async getBookDetails(bookId, locale) {
         try {
             const response = await axios.get(this.baseBookUrl, {
+                timeout: this.timeoutMs,
                 params: {
                     bookId: bookId,
                     request_locale: locale

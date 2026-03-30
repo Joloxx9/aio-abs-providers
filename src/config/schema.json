@@ -55,7 +55,7 @@
             "genres": { "type": ["string", "null"] },
             "tags": { "type": ["string", "null"] }
           },
-          "additionalProperties": true
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

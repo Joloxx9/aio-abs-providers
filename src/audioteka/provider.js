@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const sanitizeHtml = require('sanitize-html');
 
 function cleanCoverUrl(url) {
   if (url) {
@@ -56,6 +57,7 @@ class AudiotekaProvider {
       const v = parseInt(process.env.METADATA_CONCURRENCY, 10);
       return Number.isFinite(v) && v > 0 ? v : DEFAULT_METADATA_CONCURRENCY;
     })();
+    this.timeoutMs = (this.opts.timeoutMs && Number.isFinite(this.opts.timeoutMs)) ? this.opts.timeoutMs : 10000;
     this.searchUrl = this.language === 'cz' ? 'https://audioteka.com/cz/vyhledavani' : 'https://audioteka.com/pl/szukaj';
   }
 
@@ -65,6 +67,7 @@ class AudiotekaProvider {
       const searchUrl = `${this.searchUrl}?phrase=${encodeURIComponent(query)}`;
 
       const response = await axios.get(searchUrl, {
+        timeout: this.timeoutMs,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           'Accept-Language': this.language === 'cz' ? 'cs-CZ' : 'pl-PL'
@@ -138,12 +141,10 @@ class AudiotekaProvider {
     return results;
   }
 
-  async getFullMetadata(match) {
+  async getFullMetadata(match, requestId = 'req') {
     try {
-      let requestId = 'req';
-      if (arguments.length >= 2 && arguments[1]) requestId = arguments[1];
       console.log(`[${requestId}] Fetching full metadata for: ${match.title}`);
-      const response = await axios.get(match.url);
+      const response = await axios.get(match.url, { timeout: this.timeoutMs });
       const $ = cheerio.load(response.data);
 
     let narrators = '';
@@ -375,15 +376,19 @@ class AudiotekaProvider {
 
       const descriptionHtml = $('.description_description__6gcfq, .product-description, .book-description, .product-desc').html();
 
-      const sanitizedDescription = descriptionHtml
-        ? descriptionHtml
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-            .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-        : '';
+      const sanitizedDescription = sanitizeHtml(descriptionHtml || '', {
+        allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+        allowedAttributes: {
+          a: ['href', 'name'],
+          img: ['src', 'alt'],
+        },
+        allowedSchemes: ['http', 'https'],
+      });
 
       let description = sanitizedDescription;
       if (this.addAudiotekaLinkToDescription) {
-        const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
+        const safeUrl = /^https?:\/\//.test(match.url || '') ? match.url : '';
+        const audioTekaLink = `<a href="${safeUrl}">Audioteka link</a>`;
         description = `${audioTekaLink}<br><br>${sanitizedDescription}`;
       }
 
@@ -398,11 +403,10 @@ class AudiotekaProvider {
         ...match,
         cover: pageCover || match.cover,
         narrator: narrators,
-        type: match.type || 'audiobook',
+        type: type || match.type || 'audiobook',
         duration: durationInMinutes,
         publisher,
         description,
-        type,
         genres,
         series: [],
         tags: series,
@@ -440,8 +444,6 @@ class AudiotekaProvider {
 
       return fullMetadata;
     } catch (error) {
-      let requestId = 'req';
-      if (arguments.length >= 2 && arguments[1]) requestId = arguments[1];
       console.error(`[${requestId}] Error fetching full metadata for ${match.title}:`, error.message, error.stack);
       return match;
     }
