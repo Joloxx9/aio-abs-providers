@@ -3,7 +3,7 @@ const path = require('path');
 const Ajv = require('ajv');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'config.json');
-const SCHEMA_PATH = path.resolve(__dirname, '..', 'config', 'schema.json');
+const SCHEMA_PATH = path.resolve(__dirname, 'schema.json');
 
 const ajv = new Ajv({ allErrors: true, useDefaults: true });
 const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));

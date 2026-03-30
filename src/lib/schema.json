@@ -9,8 +9,8 @@
           "type": "object",
           "properties": {
             "enabled": { "type": "boolean" },
-              "priority": { "type": "integer", "minimum": 0, "default": 0 },
-              "maxResults": { "type": "integer", "minimum": 0, "default": 0 },
+            "priority": { "type": "integer", "minimum": 0, "default": 0 },
+            "maxResults": { "type": "integer", "minimum": 0, "default": 0 },
             "language": { "type": "string" },
             "concurrency": { "type": "integer", "minimum": 1 },
             "timeoutMs": { "type": "integer", "minimum": 100, "default": 10000 },
@@ -25,14 +25,14 @@
     "global": {
       "type": "object",
       "properties": {
-        "maxProvidersParallel": { "type": "integer", "minimum": 1, "default": 5 }
-        ,"allowBooks": { "type": "boolean", "default": true },
-        "allowAudiobooks": { "type": "boolean", "default": true }
-        ,"titleWeight": { "type": "integer", "minimum": 0, "maximum": 100, "default": 60 }
-        ,"similarityThreshold": { "type": "integer", "minimum": 0, "maximum": 100, "default": 30 }
-        ,"mergeBestResults": { "type": "boolean", "default": false }
-        ,"mergeDebug": { "type": "boolean", "default": false }
-        ,"mergePreferences": {
+        "maxProvidersParallel": { "type": "integer", "minimum": 1, "default": 5 },
+        "allowBooks": { "type": "boolean", "default": true },
+        "allowAudiobooks": { "type": "boolean", "default": true },
+        "titleWeight": { "type": "integer", "minimum": 0, "maximum": 100, "default": 60 },
+        "similarityThreshold": { "type": "integer", "minimum": 0, "maximum": 100, "default": 30 },
+        "mergeBestResults": { "type": "boolean", "default": false },
+        "mergeDebug": { "type": "boolean", "default": false },
+        "mergePreferences": {
           "type": "object",
           "properties": {
             "title": { "type": ["string", "null"] },
