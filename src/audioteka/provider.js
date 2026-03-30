@@ -387,7 +387,13 @@ class AudiotekaProvider {
 
       let description = sanitizedDescription;
       if (this.addAudiotekaLinkToDescription) {
-        const safeUrl = /^https?:\/\//.test(match.url || '') ? match.url : '';
+        let safeUrl = '';
+        try {
+          const parsedUrl = new URL(match.url || '');
+          if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+            safeUrl = match.url;
+          }
+        } catch (e) { /* invalid URL — leave safeUrl empty */ }
         const audioTekaLink = `<a href="${safeUrl}">Audioteka link</a>`;
         description = `${audioTekaLink}<br><br>${sanitizedDescription}`;
       }
