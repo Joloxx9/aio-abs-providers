@@ -7,7 +7,8 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=production
+      - CONFIG_DIR=/app/config
     volumes:
-      - ./src/config:/src/config
+      - ./config:/app/config
       - ./logs:/logs
     restart: unless-stopped
