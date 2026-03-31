@@ -76,8 +76,9 @@ services:
       - "4000:4000"
     environment:
       - NODE_ENV=production
+      - CONFIG_DIR=/app/config
     volumes:
-      - ./src/config:/src/config
+      - ./config:/app/config
       - ./logs:/logs
     restart: unless-stopped
 ```
@@ -95,7 +96,8 @@ docker compose down
 ```
 
 Persistence:
-- `./config` is mounted into container -> keep `config/config.json` edits persistent.
+- `./config` is mounted into container at `/app/config` -> keeps `config.json` edits persistent.
+- On first run, a default `config.json` is automatically created in the mounted directory.
 - `./logs` optionally mounted
 
 ---
